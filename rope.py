@@ -1,5 +1,6 @@
 from typing import Tuple
 import torch
+from functools import cache
 
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     """
@@ -50,7 +51,6 @@ def apply_rotary_emb(
     """
     bs, seq_len, n_heads, head_dim = query.shape
     device = query.device
-    # todo
     #
     # Please refer to slide 22 in https://phontron.com/class/anlp2024/assets/slides/anlp-05-transformers.pdf.
     # You may also benefit from https://blog.eleuther.ai/rotary-embeddings/.
@@ -80,6 +80,7 @@ def apply_rotary_emb(
     # Return the rotary position embeddings for the query and key tensors
     return query_out, key_out
 
+@cache
 def _get_real_coef(bs, seq_len, n_heads, head_dim, theta):
     """
     Return the second column described in slide 22
@@ -103,7 +104,7 @@ def _get_real_coef(bs, seq_len, n_heads, head_dim, theta):
 
     return second_col
 
-
+@cache
 def _get_img_coef(bs, seq_len, n_heads, head_dim, theta):
     """
     Return the second column described in slide 22
