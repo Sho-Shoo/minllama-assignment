@@ -48,8 +48,7 @@ def apply_rotary_emb(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Tuple of modified query tensor and key tensor with rotary embeddings.
     """
-
-    _, seqlen, _, _ = query.shape
+    bs, seq_len, n_heads, head_dim = query.shape
     device = query.device
     # todo
     #
@@ -64,13 +63,66 @@ def apply_rotary_emb(
 
     # First, compute the trigonometric values in the second and fourth columns in
     # slide 22 (linked above).
+    second_col = _get_real_coef(bs, seq_len, n_heads, head_dim, theta)
+    fourth_col = _get_img_coef(bs, seq_len, n_heads, head_dim, theta)
 
     # Then, combine these trigonometric values with the tensors query_real, query_imag,
     # key_real, and key_imag.
+    query_third_col = torch.zeros(query.shape)
+    query_third_col[:, :, :, ::2] = -query_imag
+    query_third_col[:, :, :, 1::2] = query_real
+    key_third_col = torch.zeros(key.shape)
+    key_third_col[:, :, :, ::2] = -key_imag
+    key_third_col[:, :, :, 1::2] = key_real
 
-    raise NotImplementedError
-
-    query_out = None
-    key_out = None
+    query_out = query * second_col + query_third_col * fourth_col
+    key_out = key * second_col + key_third_col * fourth_col
     # Return the rotary position embeddings for the query and key tensors
     return query_out, key_out
+
+def _get_real_coef(bs, seq_len, n_heads, head_dim, theta):
+    """
+    Return the second column described in slide 22
+    """
+    second_col = None
+    for m in range(seq_len):
+        col = []
+        for ind in range(head_dim):
+            i = ind // 2 + 1
+            theta_i = theta ** (-2 * (i-1) / head_dim)
+            theta_i = torch.Tensor([theta_i])
+            col.append(torch.cos(m * theta_i))
+        col = torch.Tensor(col)
+        col = col[None, :]
+        if second_col is None: second_col = col
+        else: second_col = torch.cat([second_col, col])
+
+    # repeat this matrix
+    second_col = second_col[None, :, None, :]
+    second_col = second_col.repeat(bs, 1, n_heads, 1)
+
+    return second_col
+
+
+def _get_img_coef(bs, seq_len, n_heads, head_dim, theta):
+    """
+    Return the second column described in slide 22
+    """
+    fourth_col = None
+    for m in range(seq_len):
+        col = []
+        for ind in range(head_dim):
+            i = ind // 2 + 1
+            theta_i = theta ** (-2 * (i-1) / head_dim)
+            theta_i = torch.Tensor([theta_i])
+            col.append(torch.sin(m * theta_i))
+        col = torch.Tensor(col)
+        col = col[None, :]
+        if fourth_col is None: fourth_col = col
+        else: fourth_col = torch.cat([fourth_col, col])
+
+    # repeat this matrix
+    fourth_col = fourth_col[None, :, None, :]
+    fourth_col = fourth_col.repeat(bs, 1, n_heads, 1)
+
+    return fourth_col
