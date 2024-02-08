@@ -43,8 +43,15 @@ class RMSNorm(torch.nn.Module):
         Returns:
             torch.Tensor: The normalized tensor.
         """
-        rms = torch.sqrt(torch.sum(x**2) / x.numel() + self.eps)
-        return x / rms
+        # rms = torch.sqrt(torch.sum(x**2) / x.numel() + self.eps)
+        # return x / rms
+        # Compute the square of the tensor.
+        square = x.pow(2)
+        mean_square = square.mean(dim=-1, keepdim=True)
+        norm = torch.sqrt(mean_square + self.eps)
+        normalized_tensor = x / norm
+
+        return normalized_tensor
 
     def forward(self, x):
         """
@@ -93,8 +100,14 @@ class Attention(nn.Module):
         Make sure to use attention_dropout (self.attn_dropout) on the computed
         attention matrix before applying it to the value tensor.
         '''
-        # todo
-        raise NotImplementedError
+        _, _, _, dk = key.shape
+        _, _, seq_len, head_dim = query.shape
+        # dim of attn_matrix is (bs, n_local_head, seq_len, seq_len) ??
+        attn_matrix = (query @ torch.transpose(key, 2, 3)) / (dk**0.5)
+        attn_matrix = torch.softmax(attn_matrix, 3)  # ?? should be on which dimension
+        # attn_matrix = attn_matrix[:, :, None, :]
+        attn_matrix = self.attn_dropout(attn_matrix)
+        return attn_matrix @ value
 
     def forward(
         self,
@@ -196,8 +209,16 @@ class LlamaLayer(nn.Module):
         5) add a residual connection from the unnormalized self-attention output to the
            output of the feed-forward network
         '''
-        # todo
-        raise NotImplementedError
+        input_x = x
+        h = self.attention_norm(input_x)
+        h = self.attention(h)
+        h += input_x
+        attn_out = h
+        h = self.ffn_norm(h)
+        out = self.feed_forward(h)
+        out += attn_out
+        return out
+
 
 class Llama(LlamaPreTrainedModel):
     def __init__(self, config: LlamaConfig):
