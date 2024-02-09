@@ -49,33 +49,28 @@ class AdamW(Optimizer):
 
                 state = self.state[p]
 
-                # State initialization
+                # initialize state
                 if len(state) == 0:
                     state["step"] = 0
-                    # Exponential moving average of gradient values
-                    state["first_moment"] = torch.zeros_like(p.data)
-                    # Exponential moving average of squared gradient values
-                    state["second_moment"] = torch.zeros_like(p.data)
+                    state["first_moment"] = torch.zeros(grad.shape)
+                    state["second_moment"] = torch.zeros(grad.shape)
 
                 state["step"] += 1
                 beta1, beta2 = group["betas"]
                 first_moment, second_moment = state["first_moment"], state["second_moment"]
 
-                # Decay the first and second moment running average coefficient
-                # In-place operations to update the averages at the same time
-                # first_moment = first_moment * beta1 + (1.0 - beta1) * grad
+                # weight decay
                 first_moment.mul_(beta1).add_(grad, alpha=1.0 - beta1)
                 second_moment.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
                 denom = second_moment.sqrt().add_(group["eps"])
 
+                # correct for bias
                 if self.defaults["correct_bias"]:
                     bias_correction1 = 1.0 - beta1 ** state["step"]
                     bias_correction2 = 1.0 - beta2 ** state["step"]
                     alpha = alpha * math.sqrt(bias_correction2) / bias_correction1
 
                 p.data.addcdiv_(first_moment, denom, value=-alpha)
-
-                if group["weight_decay"] > 0.0:
-                    p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
+                p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
 
         return loss
