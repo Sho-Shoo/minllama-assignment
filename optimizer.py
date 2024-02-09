@@ -2,6 +2,7 @@ from typing import Callable, Iterable, Tuple
 
 import torch
 from torch.optim import Optimizer
+import math
 
 
 class AdamW(Optimizer):
@@ -46,34 +47,35 @@ class AdamW(Optimizer):
                 # Access hyperparameters from the `group` dictionary
                 alpha = group["lr"]
 
-                # Update first and second moments of the gradients
-                if "first_moment" not in state:
-                    state["first_moment"] = torch.zeros(grad.shape)
-                if "second_moment" not in state:
-                    state["second_moment"] = torch.zeros(grad.shape)
-                if "timestep" not in state:
-                    state["timestep"] = 0
+                state = self.state[p]
 
-                beta1, beta2 = self.defaults["betas"][0], self.defaults["betas"][1]
-                state["timestep"] += 1
-                state["first_moment"] = beta1 * state["first_moment"] + (1 - beta1) * grad
-                state["second_moment"] = beta2 * state["second_moment"] + (1 - beta2) * grad * grad
+                # State initialization
+                if len(state) == 0:
+                    state["step"] = 0
+                    # Exponential moving average of gradient values
+                    state["first_moment"] = torch.zeros_like(p.data)
+                    # Exponential moving average of squared gradient values
+                    state["second_moment"] = torch.zeros_like(p.data)
 
-                # Bias correction
-                # Please note that we are using the "efficient version" given in
-                # https://arxiv.org/abs/1412.6980
+                state["step"] += 1
+                beta1, beta2 = group["betas"]
+                first_moment, second_moment = state["first_moment"], state["second_moment"]
+
+                # Decay the first and second moment running average coefficient
+                # In-place operations to update the averages at the same time
+                # first_moment = first_moment * beta1 + (1.0 - beta1) * grad
+                first_moment.mul_(beta1).add_(grad, alpha=1.0 - beta1)
+                second_moment.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
+                denom = second_moment.sqrt().add_(group["eps"])
+
                 if self.defaults["correct_bias"]:
-                    m_hat = state["first_moment"] / (1 - beta1 ** state["timestep"])
-                    v_hat = state["second_moment"] / (1 - beta2 ** state["timestep"])
-                else:
-                    m_hat, v_hat = state["first_moment"], state["second_moment"]
+                    bias_correction1 = 1.0 - beta1 ** state["step"]
+                    bias_correction2 = 1.0 - beta2 ** state["step"]
+                    alpha = alpha * math.sqrt(bias_correction2) / bias_correction1
 
-                # Update parameters
-                eps = self.defaults["eps"]
-                lam = self.defaults["weight_decay"]
-                p.data -= alpha * m_hat / (torch.sqrt(v_hat) + eps) + lam * p.data
+                p.data.addcdiv_(first_moment, denom, value=-alpha)
 
-                # Add weight decay after the main gradient-based updates.
-                # Please note that the learning rate should be incorporated into this update.
+                if group["weight_decay"] > 0.0:
+                    p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
 
         return loss
