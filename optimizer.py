@@ -39,15 +39,11 @@ class AdamW(Optimizer):
                 if grad.is_sparse:
                     raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
 
-                # raise NotImplementedError()
-
                 # State should be stored in this dictionary
                 state = self.state[p]
 
                 # Access hyperparameters from the `group` dictionary
                 alpha = group["lr"]
-
-                state = self.state[p]
 
                 # initialize state
                 if len(state) == 0:
@@ -60,17 +56,19 @@ class AdamW(Optimizer):
                 first_moment, second_moment = state["first_moment"], state["second_moment"]
 
                 # weight decay
-                first_moment.mul_(beta1).add_(grad, alpha=1.0 - beta1)
-                second_moment.mul_(beta2).addcmul_(grad, grad, value=1.0 - beta2)
-                denom = second_moment.sqrt().add_(group["eps"])
+                first_moment = first_moment * beta1 + (1.0 - beta1) * grad
+                second_moment = second_moment * beta2 + (1.0 - beta2) * grad * grad
+                state["first_moment"], state["second_moment"] = first_moment, second_moment
+                denom = second_moment.sqrt() + self.defaults["eps"]
 
                 # correct for bias
+                adj_alpha = alpha
                 if self.defaults["correct_bias"]:
-                    bias_correction1 = 1.0 - beta1 ** state["step"]
-                    bias_correction2 = 1.0 - beta2 ** state["step"]
-                    alpha = alpha * math.sqrt(bias_correction2) / bias_correction1
+                    beta1_corr = 1.0 - beta1 ** state["step"]
+                    beta2_corr = 1.0 - beta2 ** state["step"]
+                    adj_alpha = alpha * math.sqrt(beta2_corr) / beta1_corr
 
-                p.data.addcdiv_(first_moment, denom, value=-alpha)
-                p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
+                p.data -= adj_alpha * first_moment / denom
+                p.data -= alpha * group["weight_decay"] * p.data
 
         return loss
